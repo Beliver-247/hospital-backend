@@ -5,22 +5,14 @@ import env from './config/env.js';
 
 const server = http.createServer(app);
 
-connectDB()
-  .then(() => {
+(async () => {
+  try {
+    await connectDB();
     server.listen(env.port, () => {
-      console.log(`[server] http://localhost:${env.port} (env: ${env.nodeEnv})`);
+      console.log(`🚀 Server running at http://localhost:${env.port}`);
     });
-  })
-  .catch((err) => {
-    console.error('[server] Failed to connect DB:', err?.message);
+  } catch (err) {
+    console.error('❌ Failed to start server:', err.message);
     process.exit(1);
-  });
-
-// graceful shutdown (Ctrl+C)
-process.on('SIGINT', () => {
-  console.log('\n[server] Shutting down...');
-  server.close(() => {
-    console.log('[server] Closed.');
-    process.exit(0);
-  });
-});
+  }
+})();

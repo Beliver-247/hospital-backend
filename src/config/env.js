@@ -1,16 +1,15 @@
 import 'dotenv/config';
 
-function req(name, fallback = undefined) {
-  const v = process.env[name] ?? fallback;
-  if (v === undefined || v === '') throw new Error(`Missing env var: ${name}`);
-  return v;
+const required = ['ATLAS_URI', 'JWT_SECRET'];
+for (const k of required) {
+  if (!process.env[k]) throw new Error(`Missing env var: ${k}`);
 }
 
-const config = {
+const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: Number(process.env.PORT || 4000),
-  atlasUri: req('ATLAS_URI'),
-  jwtSecret: process.env.JWT_SECRET || 'devsecret'
+  atlasUri: process.env.ATLAS_URI,
+  jwtSecret: process.env.JWT_SECRET,
 };
 
-export default config;
+export default env;
