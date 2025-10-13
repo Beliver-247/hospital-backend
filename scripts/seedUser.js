@@ -1,35 +1,37 @@
 // scripts/seedUser.js
-import 'dotenv/config';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import env from '../src/config/env.js';
-import { connectDB } from '../src/config/db.js';
+import dotenv from 'dotenv';
 import User from '../src/models/User.js';
+import env from '../src/config/env.js';
 
-async function run() {
-  await connectDB();
+dotenv.config();
 
-  const email = process.argv[2] || 'doctor@example.com';
-  const password = process.argv[3] || 'password123';
-  const role = process.argv[4] || 'DOCTOR';
-  const fullName = process.argv[5] || 'Dr. John Doe';
+async function main() {
+  try {
+    await mongoose.connect(env.atlasUri, { dbName: 'hospital-db' });
+    console.log('✅ Connected to MongoDB (hospital-db)');
 
-  const passwordHash = await bcrypt.hash(password, 10);
+    const email = 'doc@example.com';
+    const plainPassword = 'secret'; // change if you want
+    const passwordHash = await bcrypt.hash(plainPassword, 10);
 
-  const existing = await User.findOne({ email });
-  if (existing) {
-    console.log(`[seed] User exists: ${email}`);
-    await mongoose.connection.close();
-    process.exit(0);
+    const user = await User.create({
+      email,
+      passwordHash,
+      role: 'DOCTOR',
+      name: 'Dr. Example'
+    });
+
+    console.log('✅ User created successfully:');
+    console.log({ email, password: plainPassword, role: user.role });
+
+    await mongoose.disconnect();
+    console.log('🔌 Disconnected');
+  } catch (err) {
+    console.error('❌ Seed failed:', err);
+    process.exit(1);
   }
-
-  await User.create({ email, passwordHash, role, fullName });
-  console.log(`[seed] Created user ${email} / role=${role}`);
-  await mongoose.connection.close();
 }
 
-run().catch(async (e) => {
-  console.error(e);
-  await mongoose.connection.close();
-  process.exit(1);
-});
+main();
