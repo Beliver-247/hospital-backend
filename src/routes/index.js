@@ -3,6 +3,7 @@ import { Router } from 'express';
 import authRoutes from './auth.routes.js';
 import patientRoutes from './patient.routes.js';
 import uploadRoutes from './upload.routes.js';
+import reportRoutes from './report.routes.js';
 
 const router = Router();
 
@@ -13,5 +14,6 @@ router.get('/health', (req, res) => {
 router.use('/auth', authRoutes);
 router.use('/patients', patientRoutes);
 router.use('/uploads', uploadRoutes); // <-- add this
+router.use('/reports', reportRoutes); 
 
 export default router;
