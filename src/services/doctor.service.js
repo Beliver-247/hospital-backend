@@ -1,26 +1,31 @@
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 
-export async function createDoctor({ email, password, name }) {
-  // since there’s no unique index, do a code-level pre-check
+export async function createDoctor({ email, password, name, doctorType }) {
   const existing = await User.findOne({ email }).lean();
-  if (existing) {
-    return { ok: false, reason: 'email_exists' };
-  }
+  if (existing) return { ok: false, reason: 'email_exists' };
 
   const passwordHash = await bcrypt.hash(password, 10);
   const doc = await User.create({
     email,
     passwordHash,
     role: 'DOCTOR',
-    name
+    name,
+    doctorType
   });
 
   return {
     ok: true,
-    user: { id: String(doc._id), email: doc.email, role: doc.role, name: doc.name }
+    user: {
+      id: String(doc._id),
+      email: doc.email,
+      role: doc.role,
+      name: doc.name,
+      doctorType: doc.doctorType
+    }
   };
 }
+
 
 export async function deleteDoctor(id) {
   const res = await User.deleteOne({ _id: id, role: 'DOCTOR' });
@@ -35,5 +40,12 @@ export async function listDoctors({ q, limit = 50 }) {
     Object.assign(filter, { $or: [{ email: re }, { name: re }] });
   }
   const docs = await User.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
-  return docs.map(d => ({ id: String(d._id), email: d.email, name: d.name, role: d.role }));
+  return docs.map(d => ({
+  id: String(d._id),
+  email: d.email,
+  name: d.name,
+  role: d.role,
+  doctorType: d.doctorType
+}));
+
 }
