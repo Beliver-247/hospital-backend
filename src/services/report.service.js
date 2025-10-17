@@ -11,10 +11,18 @@ class ReportService {
       APPOINTMENTS_STATS: 'appointments_stats',
     };
 
+    // Bind all methods to ensure proper 'this' context
     this.generateReport = this.generateReport.bind(this);
     this.generatePatientsList = this.generatePatientsList.bind(this);
     this.generateAppointmentsList = this.generateAppointmentsList.bind(this);
     this.generateAppointmentsStats = this.generateAppointmentsStats.bind(this);
+    this.saveReportToDB = this.saveReportToDB.bind(this);
+    this.getReportHistory = this.getReportHistory.bind(this);
+    this.getReportById = this.getReportById.bind(this);
+    this.deleteReport = this.deleteReport.bind(this);
+    this.downloadReport = this.downloadReport.bind(this);
+    this.getReportStats = this.getReportStats.bind(this);
+    this.getAvailableReports = this.getAvailableReports.bind(this);
   }
 
   async generateReport(type, filters = {}, options = {}) {
@@ -43,17 +51,31 @@ class ReportService {
 
   async saveReportToDB(type, filters, options, result) {
     try {
-      const report = new Report({
+      const reportData = {
         reportType: type,
-        filters: filters,
-        options: options,
-        data: result,
+        filters: filters || {},
+        options: options || {},
+        data: result || {},
         generatedAt: new Date(),
-        recordCount: result.totalPatients || result.totalAppointments || result.data?.length || 0
-      });
+        recordCount: result?.totalPatients || result?.totalAppointments || result?.data?.length || 0
+      };
+
+      const report = new Report(reportData);
       await report.save();
+      
+      console.log('✅ Report saved successfully with ID:', report._id);
+      return report;
+      
     } catch (error) {
-      console.error('Failed to save report to DB:', error);
+      console.error('❌ Failed to save report to DB:', error.message);
+      
+      // If it's a duplicate key error, log it but don't break the report generation
+      if (error.code === 11000) {
+        console.warn('⚠️ Report not saved due to duplicate key, but report generation completed successfully');
+      }
+      
+      // Return null to indicate save failed, but don't throw error
+      return null;
     }
   }
 
@@ -287,6 +309,177 @@ class ReportService {
     }
   }
 
+  // Get report history with filtering and pagination
+  async getReportHistory(filters = {}, pagination = {}) {
+    try {
+      const {
+        type = 'all',
+        status = 'all',
+        date,
+        search
+      } = filters;
+
+      const {
+        page = 1,
+        limit = 10,
+        sortBy = 'generatedAt',
+        sortOrder = 'desc'
+      } = pagination;
+
+      // Build query
+      const query = {};
+
+      // Report type filter
+      if (type && type !== 'all') {
+        query.reportType = type;
+      }
+
+      // Date filter
+      if (date) {
+        const startDate = new Date(date);
+        startDate.setHours(0, 0, 0, 0);
+        
+        const endDate = new Date(date);
+        endDate.setHours(23, 59, 59, 999);
+        
+        query.generatedAt = {
+          $gte: startDate,
+          $lte: endDate
+        };
+      }
+
+      // Search filter (by reportId)
+      if (search) {
+        query.reportId = { $regex: search, $options: 'i' };
+      }
+
+      console.log('Report history query:', query);
+
+      // Calculate pagination
+      const skip = (page - 1) * limit;
+      const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+
+      // Execute query - DON'T exclude data, we need it for size calculation
+      const reports = await Report.find(query)
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .lean();
+
+      // Get total count for pagination
+      const totalReports = await Report.countDocuments(query);
+      const totalPages = Math.ceil(totalReports / limit);
+
+      // Transform the data for frontend
+      const transformedReports = reports.map(report => 
+        this.transformReportHistoryData(report)
+      );
+
+      return {
+        reports: transformedReports,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalReports,
+          hasNext: page < totalPages,
+          hasPrev: page > 1
+        }
+      };
+    } catch (error) {
+      console.error('Error fetching report history:', error);
+      throw new Error(`Failed to fetch report history: ${error.message}`);
+    }
+  }
+
+  // Get specific report by ID
+  async getReportById(reportId) {
+    try {
+      const report = await Report.findById(reportId);
+      if (!report) {
+        throw new Error('Report not found');
+      }
+      return report;
+    } catch (error) {
+      console.error('Error fetching report by ID:', error);
+      throw new Error(`Failed to fetch report: ${error.message}`);
+    }
+  }
+
+  // Delete report by ID
+  async deleteReport(reportId) {
+    try {
+      console.log('Attempting to delete report:', reportId);
+      
+      const report = await Report.findByIdAndDelete(reportId);
+      if (!report) {
+        throw new Error('Report not found');
+      }
+      
+      console.log('Report deleted successfully:', reportId);
+      return { 
+        success: true, 
+        message: 'Report deleted successfully',
+        deletedReport: {
+          id: report._id,
+          reportId: report.reportId,
+          type: report.reportType
+        }
+      };
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      throw new Error(`Failed to delete report: ${error.message}`);
+    }
+  }
+
+  // Download report in different formats
+  async downloadReport(reportId, format = 'json') {
+    try {
+      const report = await Report.findById(reportId);
+      if (!report) {
+        throw new Error('Report not found');
+      }
+
+      // Ensure data exists
+      if (!report.data) {
+        throw new Error('Report data is missing');
+      }
+
+      let content, filename, contentType;
+
+      switch (format) {
+        case 'csv':
+          if (report.reportType === 'patients_list') {
+            content = this.patientsToCSV(report.data.data || []);
+          } else if (report.reportType === 'appointments_list') {
+            content = this.appointmentsToCSV(report.data.data || []);
+          } else {
+            content = this.statsToCSV(report.data);
+          }
+          filename = `${report.reportType}_${report.reportId || report._id}.csv`;
+          contentType = 'text/csv';
+          break;
+
+        case 'json':
+          content = JSON.stringify(report.data, null, 2);
+          filename = `${report.reportType}_${report.reportId || report._id}.json`;
+          contentType = 'application/json';
+          break;
+
+        default:
+          throw new Error('Unsupported download format');
+      }
+
+      return {
+        content,
+        filename,
+        contentType
+      };
+    } catch (error) {
+      console.error('Error downloading report:', error);
+      throw new Error(`Failed to download report: ${error.message}`);
+    }
+  }
+
   transformAppointmentData(appointment, includePatientDetails = false) {
     const transformed = {
       appointmentId: appointment.appointmentId,
@@ -358,6 +551,44 @@ class ReportService {
     }
 
     return transformed;
+  }
+
+  // Helper method to transform report data for history list
+  transformReportHistoryData(report) {
+    const reportTypeMap = {
+      'patients_list': 'Patient List',
+      'appointments_list': 'Appointments List',
+      'appointments_stats': 'Appointments Statistics'
+    };
+
+    // Calculate file size estimate (rough calculation)
+    // Handle cases where data might be undefined or null
+    let sizeInMB = '0.0';
+    
+    if (report.data) {
+      try {
+        const dataSize = JSON.stringify(report.data).length;
+        sizeInMB = (dataSize / (1024 * 1024)).toFixed(1);
+      } catch (error) {
+        console.warn('Error calculating report size:', error);
+        sizeInMB = '0.0';
+      }
+    }
+
+    // Handle missing reportId gracefully
+    const reportId = report.reportId || `RPT_${report._id}`;
+
+    return {
+      id: report._id,
+      reportId: reportId,
+      type: reportTypeMap[report.reportType] || report.reportType,
+      generatedAt: report.generatedAt,
+      recordCount: report.recordCount || 0,
+      status: 'completed', // All saved reports are completed
+      size: `${sizeInMB} MB`,
+      filters: report.filters || {},
+      reportType: report.reportType
+    };
   }
 
   formatAppointmentsReport(appointments, format) {
@@ -444,8 +675,56 @@ class ReportService {
     return [headers.join(','), ...rows.map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))].join('\n');
   }
 
+  // Helper method to convert stats to CSV
+  statsToCSV(statsData) {
+    const headers = ['Metric', 'Value'];
+    const rows = [];
+
+    // Add basic stats
+    rows.push(['Report Type', statsData.reportType]);
+    rows.push(['Generated At', statsData.generatedAt]);
+    
+    if (statsData.totalAppointments) {
+      rows.push(['Total Appointments', statsData.totalAppointments]);
+    }
+    
+    if (statsData.totalPatients) {
+      rows.push(['Total Patients', statsData.totalPatients]);
+    }
+
+    // Add status stats
+    if (statsData.statusStats && statsData.statusStats.length > 0) {
+      rows.push(['', '']);
+      rows.push(['Status Statistics', '']);
+      statsData.statusStats.forEach(stat => {
+        rows.push([stat._id, stat.count]);
+      });
+    }
+
+    // Add specialization stats
+    if (statsData.specializationStats && statsData.specializationStats.length > 0) {
+      rows.push(['', '']);
+      rows.push(['Specialization Statistics', '']);
+      statsData.specializationStats.forEach(stat => {
+        rows.push([stat._id, stat.count]);
+      });
+    }
+
+    return [headers.join(','), ...rows.map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))].join('\n');
+  }
+
   getAvailableReports() {
     return Object.values(this.reportTypes);
+  }
+
+  // Get report types for filter dropdown
+  getReportTypesForFilter() {
+    return [
+      { value: 'all', label: 'All Types' },
+      { value: 'patients_list', label: 'Patient List' },
+      { value: 'appointments_list', label: 'Appointments List' },
+      { value: 'appointments_stats', label: 'Appointments Statistics' }
+    ];
   }
 
   async getReportStats() {
@@ -473,159 +752,6 @@ class ReportService {
       throw new Error(`Failed to get report stats: ${error.message}`);
     }
   }
-
-  // In src/services/report.service.js - Update these methods
-
-// Get report history with filtering and pagination
-async getReportHistory(filters = {}, pagination = {}) {
-  try {
-    const {
-      type = 'all',
-      status = 'all',
-      date,
-      search
-    } = filters;
-
-    const {
-      page = 1,
-      limit = 10,
-      sortBy = 'generatedAt',
-      sortOrder = 'desc'
-    } = pagination;
-
-    // Build query
-    const query = {};
-
-    // Report type filter
-    if (type && type !== 'all') {
-      query.reportType = type;
-    }
-
-    // Date filter
-    if (date) {
-      const startDate = new Date(date);
-      startDate.setHours(0, 0, 0, 0);
-      
-      const endDate = new Date(date);
-      endDate.setHours(23, 59, 59, 999);
-      
-      query.generatedAt = {
-        $gte: startDate,
-        $lte: endDate
-      };
-    }
-
-    // Search filter (by reportId)
-    if (search) {
-      query.reportId = { $regex: search, $options: 'i' };
-    }
-
-    console.log('Report history query:', query);
-
-    // Calculate pagination
-    const skip = (page - 1) * limit;
-    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
-
-    // Execute query - DON'T exclude data, we need it for size calculation
-    const reports = await Report.find(query)
-      .sort(sort)
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
-    // Get total count for pagination
-    const totalReports = await Report.countDocuments(query);
-    const totalPages = Math.ceil(totalReports / limit);
-
-    // Transform the data for frontend
-    const transformedReports = reports.map(report => 
-      this.transformReportHistoryData(report)
-    );
-
-    return {
-      reports: transformedReports,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalReports,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
-      }
-    };
-  } catch (error) {
-    console.error('Error fetching report history:', error);
-    throw new Error(`Failed to fetch report history: ${error.message}`);
-  }
-}
-
-// Helper method to transform report data for history list
-transformReportHistoryData(report) {
-  const reportTypeMap = {
-    'patients_list': 'Patient List',
-    'appointments_list': 'Appointments List',
-    'appointments_stats': 'Appointments Statistics'
-  };
-
-  // Calculate file size estimate (rough calculation)
-  // Handle cases where data might be undefined or null
-  let sizeInMB = '0.0';
-  
-  if (report.data) {
-    try {
-      const dataSize = JSON.stringify(report.data).length;
-      sizeInMB = (dataSize / (1024 * 1024)).toFixed(1);
-    } catch (error) {
-      console.warn('Error calculating report size:', error);
-      sizeInMB = '0.0';
-    }
-  }
-
-  // Handle missing reportId gracefully
-  const reportId = report.reportId || `RPT_${report._id}`;
-
-  return {
-    id: report._id,
-    reportId: reportId,
-    type: reportTypeMap[report.reportType] || report.reportType,
-    generatedAt: report.generatedAt,
-    recordCount: report.recordCount || 0,
-    status: 'completed', // All saved reports are completed
-    size: `${sizeInMB} MB`,
-    filters: report.filters || {},
-    reportType: report.reportType
-  };
-}
-
-// Update the saveReportToDB method to ensure data is properly saved
-async saveReportToDB(type, filters, options, result) {
-  try {
-    const reportData = {
-      reportType: type,
-      filters: filters || {},
-      options: options || {},
-      data: result || {},
-      generatedAt: new Date(),
-      recordCount: result?.totalPatients || result?.totalAppointments || result?.data?.length || 0
-    };
-
-    const report = new Report(reportData);
-    await report.save();
-    
-    console.log('✅ Report saved successfully with ID:', report._id);
-    return report;
-    
-  } catch (error) {
-    console.error('❌ Failed to save report to DB:', error.message);
-    
-    // If it's a duplicate key error, log it but don't break the report generation
-    if (error.code === 11000) {
-      console.warn('⚠️ Report not saved due to duplicate key, but report generation completed successfully');
-    }
-    
-    // Return null to indicate save failed, but don't throw error
-    return null;
-  }
-}
 }
 
 export default new ReportService();
