@@ -24,4 +24,9 @@ const UserSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Speed up doctor filtering & name search
+UserSchema.index({ role: 1, doctorType: 1 });       // new field
+UserSchema.index({ role: 1, specialization: 1 });   // legacy field (if older docs used this)
+UserSchema.index({ name: 1, email: 1 });
+
 export default mongoose.model('User', UserSchema);
