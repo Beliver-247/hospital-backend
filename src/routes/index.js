@@ -4,7 +4,8 @@ import authRoutes from './auth.routes.js';
 import patientRoutes from './patient.routes.js';
 import uploadRoutes from './upload.routes.js';
 import reportRoutes from './report.routes.js';
-import appointmentRoutes from './appointment.routes.js'
+import appointmentRoutes from './appointment.routes.js';
+import doctorRoutes from './doctor.routes.js'; 
 
 const router = Router();
 
@@ -17,5 +18,6 @@ router.use('/patients', patientRoutes);
 router.use('/uploads', uploadRoutes); // <-- add this
 router.use('/reports', reportRoutes); 
 router.use('/appointments', appointmentRoutes);
+router.use('/doctors', doctorRoutes);  
 
 export default router;
