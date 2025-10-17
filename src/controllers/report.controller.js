@@ -129,3 +129,93 @@ export const getReportStatistics = async (req, res, next) => {
     next(error);
   }
 };
+
+// src/controllers/report.controller.js - Add these new functions
+
+// Get report history
+export const getReportHistory = async (req, res, next) => {
+  try {
+    const {
+      type = 'all',
+      status = 'all',
+      date,
+      search,
+      page = 1,
+      limit = 10,
+      sortBy = 'generatedAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    const filters = { type, status, date, search };
+    const pagination = { page: parseInt(page), limit: parseInt(limit), sortBy, sortOrder };
+
+    const result = await reportService.getReportHistory(filters, pagination);
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get specific report by ID
+export const getReportById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const report = await reportService.getReportById(id);
+
+    res.json({
+      success: true,
+      data: report
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Delete report
+export const deleteReport = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await reportService.deleteReport(id);
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Download report
+export const downloadReport = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { format = 'json' } = req.query;
+
+    const { content, filename, contentType } = await reportService.downloadReport(id, format);
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(content);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get report types for filter (optional)
+export const getReportFilterTypes = async (req, res, next) => {
+  try {
+    const reportTypes = reportService.getReportTypesForFilter();
+    
+    res.json({
+      success: true,
+      data: reportTypes
+    });
+  } catch (error) {
+    next(error);
+  }
+};
