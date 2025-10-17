@@ -15,5 +15,6 @@ router.use('/auth', authRoutes);
 router.use('/patients', patientRoutes);
 router.use('/uploads', uploadRoutes); // <-- add this
 router.use('/reports', reportRoutes); 
+router.use('/appointments', appointmentRoutes);
 
 export default router;
